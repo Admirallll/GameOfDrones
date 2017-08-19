@@ -14,12 +14,45 @@ namespace GameOfDrones
             while (true)
             {
                 LoopInput(game);
+                var myDronsInZones = new int[game.ZonesCount];
                 for (int i = 0; i < game.DronesCount; i++)
                 {
-                    var location = game.GetNotMyZones()
-                        .OrderBy(zone => zone.Location.DistanceTo(game.GetMyDrone(i)))
-                        .First().Location;
-                    Console.WriteLine(location.ToGameString());
+                    for (int j = 0; j < game.ZonesCount; j++)
+                        if (game.Zones[j].LocationInZone(game.GetMyDrone(i)))
+                            myDronsInZones[j]++;
+                }
+                for (int i = 0; i < game.DronesCount; i++)
+                {
+                    var dron = game.GetMyDrone(i);
+                    Zone targetZone = null;
+                    foreach (var zone in game.ZonesByDistance(dron))
+                    {
+                        if (!zone.LocationInZone(dron))
+                            continue;
+                        if ((zone.Owner == game.MyId && myDronsInZones[zone.Id] > game.MaxEnemiesInZoneCount(zone)))
+                        {
+                            targetZone = game.ZonesByDistance(dron).FirstOrDefault(anotherZone => anotherZone.Owner != game.MyId);
+                            if (targetZone == null)
+                            {
+                                continue;
+                            }
+                            myDronsInZones[zone.Id]--;
+                            Console.Error.WriteLine($"Dron id={i} zone={zone.Id} my drones={myDronsInZones[zone.Id]}");
+                        }
+                        else
+                        {
+                            targetZone = zone;
+                        }
+                    }
+                    if (targetZone == null)
+                    {
+                        targetZone = game.ZonesByDistance(dron).FirstOrDefault(zone => zone.Owner != game.MyId);
+                    }
+                    if (targetZone == null)
+                    {
+                        targetZone = game.ZonesByDistance(dron).First();
+                    }
+                    Console.WriteLine(targetZone.Location.ToGameString());
                 }
             }
         }
@@ -37,7 +70,7 @@ namespace GameOfDrones
                 inputs = Console.ReadLine().Split(' ');
                 var x = int.Parse(inputs[0]); // corresponds to the position of the center of a zone. A zone is a circle with a radius of 100 units.
                 var y = int.Parse(inputs[1]);
-                bot.Zones.Add(new Zone(x, y));
+                bot.Zones.Add(new Zone(i, x, y));
             }
             return bot;
         }
@@ -81,7 +114,7 @@ namespace GameOfDrones
             Zones = new List<Zone>();
             Players = new List<Player>();
             for (var i = 0; i < playersInGame; i++)
-                Players.Add(new Player());
+                Players.Add(new Player(i));
         }
 
         public IEnumerable<Zone> GetNotMyZones()
@@ -93,11 +126,31 @@ namespace GameOfDrones
         {
             return Players[MyId].Drones[id];
         }
+
+        public int MaxEnemiesInZoneCount(Zone zone)
+        {
+            return Players
+                .Where(player => player.Id != MyId)
+                .Select(player => player.Drones)
+                .Max(drones => drones.Count(dron => zone.LocationInZone(dron)));
+        }
+
+        public IEnumerable<Zone> ZonesByDistance(Location location)
+        {
+            return Zones.OrderBy(zone => zone.Location.DistanceTo(location));
+        }
     }
 
     public class Player
     {
+        public int Id { get; }
         public List<Location> Drones { get; set; }
+
+        public Player(int id)
+        {
+            Id = id;
+            Drones = new List<Location>();
+        }
     }
 
     public class Zone
@@ -105,10 +158,17 @@ namespace GameOfDrones
         public const int Radius = 100;
         public Location Location { get; }
         public int Owner { get; set; }
+        public int Id { get; }
 
-        public Zone(int x, int y)
+        public Zone(int id, int x, int y)
         {
+            Id = id;
             Location = new Location(x, y);
+        }
+
+        public bool LocationInZone(Location location)
+        {
+            return location.DistanceTo(Location) <= Zone.Radius;
         }
     }
 
